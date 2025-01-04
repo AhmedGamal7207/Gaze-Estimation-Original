@@ -1,0 +1,8 @@
+detect.py --arch resnet50 --gaze-weights weights/resnet50.pt --view --input assets/in_video.mp4 --output assets/resnet50_out.mp4
+
+detect.py --arch mobileone_s0 --gaze-weights weights/mobileone_s0.pt --view --input assets/in_video.mp4 --output assets/mobileone_s0_out.mp4
+
+detect.py --arch mobilenetv2 --gaze-weights weights/mobilenetv2.pt --view --input assets/in_video.mp4 --output assets/mobilenetv2_out.mp4
+
+detect.py --arch resnet34 --gaze-weights weights/resnet34.pt --view --input assets/in_video.mp4 --output assets/resnet34_out.mp4
+
