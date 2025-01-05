@@ -10,44 +10,52 @@ from torchvision import transforms
 
 from models import SCRFD
 from config import data_config
-from utils.helpers import get_model, draw_bbox_gaze
+from utils.helpers import get_model, draw_bbox_gaze, draw_bbox
 
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
+def draw_text_ui(frame, pitch, yaw):
+    # Convert tensors to scalars (Python floats)
+    pitch_value = pitch.item() if isinstance(pitch, torch.Tensor) else pitch
+    yaw_value = yaw.item() if isinstance(yaw, torch.Tensor) else yaw
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Gaze estimation inference")
-    parser.add_argument("--arch", type=str, default="resnet34", help="Model name, default `resnet18`")
-    parser.add_argument(
-        "--gaze-weights",
-        type=str,
-        default="output/gaze360_resnet34_1724339168/best_model.pt",
-        help="Path to gaze esimation model weights"
-    )
-    parser.add_argument(
-        "--face-weights",
-        type=str,
-        default="weights/det_10g.onnx",
-        help="Path to face detection model weights"
-    )
-    parser.add_argument("--view", action="store_true", help="Display the inference results")
-    parser.add_argument("--input", type=str, default="assets/in_video.mp4", help="Path to input video file")
-    parser.add_argument("--output", type=str, default="output.mp4", help="Path to save output file")
-    parser.add_argument("--dataset", type=str, default="gaze360", help="Dataset name to get dataset related configs")
-    args = parser.parse_args()
+    # UI box dimensions
+    x, y, w, h = 10, 10, 200, 70
 
-    # Override default values based on selected dataset
-    if args.dataset in data_config:
-        dataset_config = data_config[args.dataset]
-        args.bins = dataset_config["bins"]
-        args.binwidth = dataset_config["binwidth"]
-        args.angle = dataset_config["angle"]
-    else:
-        raise ValueError(f"Unknown dataset: {args.dataset}. Available options: {list(data_config.keys())}")
+    # Semi-transparent background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x, y), (x + w, y + h), (0, 0, 0), -1)
+    alpha = 0.5  # Transparency factor
+    frame = cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0)
 
-    return args
+    # Text settings
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.6
+    font_color = (255, 255, 255)
+    thickness = 2
+    line_type = cv2.LINE_AA
 
+    # Text positions
+    pitch_text = f"Pitch: {pitch_value:.2f}"
+    yaw_text = f"Yaw: {yaw_value:.2f}"
+    cv2.putText(frame, pitch_text, (x + 10, y + 25), font, font_scale, font_color, thickness, line_type)
+    cv2.putText(frame, yaw_text, (x + 10, y + 55), font, font_scale, font_color, thickness, line_type)
+
+    return frame
+
+
+class Args:
+    def __init__(self, arch, gaze_weights, face_weights, view, input, output, bins, binwidth, angle):
+        self.arch = arch
+        self.gaze_weights = gaze_weights
+        self.face_weights = face_weights
+        self.view = view
+        self.input = input
+        self.output = output
+        self.bins = bins
+        self.binwidth = binwidth
+        self.angle = angle
 
 def pre_process(image):
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -65,7 +73,7 @@ def pre_process(image):
 
 def main(params):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    
     idx_tensor = torch.arange(params.bins, device=device, dtype=torch.float32)
 
     try:
@@ -85,27 +93,14 @@ def main(params):
     gaze_detector.to(device)
     gaze_detector.eval()
 
-    video_source = params.input
-    if video_source.isdigit() or video_source == '0':
-        cap = cv2.VideoCapture(int(video_source))
-    else:
-        cap = cv2.VideoCapture(video_source)
-
-    if params.output:
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out = cv2.VideoWriter(params.output, fourcc, cap.get(cv2.CAP_PROP_FPS), (width, height))
-
-    if not cap.isOpened():
-        raise IOError("Cannot open webcam")
+    cap = cv2.VideoCapture(0)
 
     with torch.no_grad():
         while True:
             success, frame = cap.read()
 
             if not success:
-                logging.info("Failed to obtain frame or EOF")
+                logging.info("Failed to get live camera data")
                 break
 
             bboxes, keypoints = face_detector.detect(frame)
@@ -130,25 +125,20 @@ def main(params):
 
                 # draw box and gaze direction
                 draw_bbox_gaze(frame, bbox, pitch_predicted, yaw_predicted)
+                #draw_bbox(frame, bbox)
+                # Display the resulting frame
+                # Draw styled UI with text on the frame
+            frame = draw_text_ui(frame, pitch_predicted, yaw_predicted)
+            cv2.imshow('Camera Feed', frame)
 
-            if params.output:
-                out.write(frame)
+            # Exit the loop when 'q' is pressed
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-            if params.view:
-                cv2.imshow('Demo', frame)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    break
-
-    cap.release()
-    if params.output:
-        out.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    args = parse_args()
-
-    if not args.view and not args.output:
-        raise Exception("At least one of --view or --ouput must be provided.")
-
+    args = Args("resnet34","weights/resnet34.pt","weights/det_10g.onnx",False,"assets/in_video.mp4","assets/resnet34_out_our_code.mp4",90,4,180)
     main(args)
+
