@@ -12,8 +12,16 @@ from models import SCRFD
 from config import data_config
 from utils.helpers import get_model, draw_bbox_gaze, draw_bbox
 
+import pandas as pd
+
 warnings.filterwarnings("ignore")
 logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+dict = {
+        "pitch":[],
+        "yaw":[],
+        "emotion":[]
+    }
 
 def draw_text_ui(frame, pitch, yaw):
     # Convert tensors to scalars (Python floats)
@@ -41,6 +49,36 @@ def draw_text_ui(frame, pitch, yaw):
     yaw_text = f"Yaw: {yaw_value:.2f}"
     cv2.putText(frame, pitch_text, (x + 10, y + 25), font, font_scale, font_color, thickness, line_type)
     cv2.putText(frame, yaw_text, (x + 10, y + 55), font, font_scale, font_color, thickness, line_type)
+    def map_gaze_to_emotion(pitch, yaw):
+            norm_pitch = pitch
+            norm_yaw = yaw
+            # Emotion classification based on gaze
+            if norm_pitch > 0.5 and abs(norm_yaw) < 0.2:
+                return "Thinking, Curiosity"
+            elif norm_pitch < -0.5 and abs(norm_yaw) < 0.2:
+                return "Sadness, Submission"
+            elif norm_pitch < -0.5 and norm_yaw > 0.2:
+                return "Guilt, Avoidance"
+            elif norm_pitch < -0.5 and norm_yaw < -0.2:
+                return "Reflection, Shame"
+            elif abs(norm_pitch) < 0.2 and norm_yaw > 0.2:
+                return "Distraction, Interest"
+            elif abs(norm_pitch) < 0.2 and norm_yaw < -0.2:
+                return "Skepticism, Doubt"
+            elif norm_pitch > 0.5 and norm_yaw > 0.2:
+                return "Imagination, Excitement"
+            elif norm_pitch > 0.5 and norm_yaw < -0.2:
+                return "Daydreaming"
+            else:
+                return "Neutral"
+
+    emotion = map_gaze_to_emotion(pitch=float(pitch_value), yaw=float(yaw_value))
+    cv2.putText(frame, emotion, (x + 10, y + 85), font, font_scale, font_color, thickness, line_type)
+    
+    dict["pitch"].append(pitch_value)
+    dict["yaw"].append(yaw_value)
+    dict["emotion"].append(emotion)
+    
 
     return frame
 
@@ -133,6 +171,11 @@ def main(params):
 
             # Exit the loop when 'q' is pressed
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                # Convert the dictionary to a DataFrame
+                df = pd.DataFrame(dict)
+            
+                # Save the DataFrame to a CSV file
+                df.to_csv("output.csv", index=False)
                 break
 
     cv2.destroyAllWindows()
